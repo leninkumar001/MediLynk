@@ -340,7 +340,10 @@ export const AuthPage: React.FC = () => {
                       </label>
                       <select
                         {...registerSignUp("role")}
-                        onChange={(e) => setRole(e.target.value as "patient" | "doctor")}
+                        onChange={(e) => {
+                          registerSignUp("role").onChange(e);
+                          setRole(e.target.value as "patient" | "doctor");
+                        }}
                         className="w-full px-3 py-3 rounded-xl border border-slate-800 bg-slate-950/90 text-xs text-slate-300 focus:ring-2 focus:ring-cyan-500 focus:outline-none"
                       >
                         <option value="patient">Patient (Data Owner)</option>
