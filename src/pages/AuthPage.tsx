@@ -59,6 +59,7 @@ export const AuthPage: React.FC = () => {
   const [forgotEmail, setForgotEmail] = useState("");
   const [verificationCode, setVerificationCode] = useState("");
   const [authError, setAuthError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
 
   // Form hooks
   const {
@@ -83,36 +84,43 @@ export const AuthPage: React.FC = () => {
   const currentSignUpRole = watchSignUp("role");
 
   // Handlers
-  const onSignIn = (data: SignInFields) => {
+  const onSignIn = async (data: SignInFields) => {
     setAuthError(null);
-    const success = login(data.email, data.role);
-    if (success) {
+    setIsLoading(true);
+    const result = await login(data.email, data.password, data.role);
+    setIsLoading(false);
+    if (result.success) {
       if (data.role === "patient") {
         navigate("/patient");
       } else {
         navigate("/doctor");
       }
     } else {
-      setAuthError(
-        `Account not found. Use mock email: ${
-          data.role === "patient"
-            ? "sarah.connor@sky.net"
-            : "elizabeth.vance@medilynk.ai"
-        }`
-      );
+      setAuthError(result.error || "Login failed. Please check your credentials.");
     }
   };
 
-  const onSignUp = (data: SignUpFields) => {
+  const onSignUp = async (data: SignUpFields) => {
     setAuthError(null);
-    signUp(data.name, data.email, data.role, {
+    setIsLoading(true);
+    const result = await signUp(data.name, data.email, data.password, data.role, {
       phone: data.phone,
       age: data.age,
       gender: data.gender,
       bloodGroup: data.bloodGroup,
       specialty: data.specialty
     });
-    setAuthMode("verify");
+    setIsLoading(false);
+    if (result.success) {
+      // Navigate directly to portal after successful registration
+      if (data.role === "patient") {
+        navigate("/patient");
+      } else {
+        navigate("/doctor");
+      }
+    } else {
+      setAuthError(result.error || "Registration failed. Please try again.");
+    }
   };
 
   const handleForgotSubmit = (e: React.FormEvent) => {
@@ -271,10 +279,14 @@ export const AuthPage: React.FC = () => {
 
                   <button
                     type="submit"
-                    className="w-full py-3.5 bg-gradient-to-r from-cyan-500 to-blue-600 text-white font-extrabold rounded-xl shadow-md hover:from-cyan-600 hover:to-blue-700 active:scale-[0.98] transition-all duration-300 text-sm flex items-center justify-center space-x-2"
+                    disabled={isLoading}
+                    className="w-full py-3.5 bg-gradient-to-r from-cyan-500 to-blue-600 text-white font-extrabold rounded-xl shadow-md hover:from-cyan-600 hover:to-blue-700 active:scale-[0.98] transition-all duration-300 text-sm flex items-center justify-center space-x-2 disabled:opacity-60 disabled:cursor-not-allowed"
                   >
-                    <span>Sign In</span>
-                    <ArrowRight size={16} />
+                    {isLoading ? (
+                      <span className="flex items-center gap-2"><svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>Signing In...</span>
+                    ) : (
+                      <><span>Sign In</span><ArrowRight size={16} /></>
+                    )}
                   </button>
                 </form>
 
@@ -489,10 +501,14 @@ export const AuthPage: React.FC = () => {
 
                   <button
                     type="submit"
-                    className="w-full py-3.5 bg-gradient-to-r from-cyan-500 to-blue-600 text-white font-extrabold rounded-xl shadow-md hover:from-cyan-600 hover:to-blue-700 active:scale-[0.98] transition-all duration-300 text-sm flex items-center justify-center space-x-2"
+                    disabled={isLoading}
+                    className="w-full py-3.5 bg-gradient-to-r from-cyan-500 to-blue-600 text-white font-extrabold rounded-xl shadow-md hover:from-cyan-600 hover:to-blue-700 active:scale-[0.98] transition-all duration-300 text-sm flex items-center justify-center space-x-2 disabled:opacity-60 disabled:cursor-not-allowed"
                   >
-                    <span>Register Account</span>
-                    <ArrowRight size={16} />
+                    {isLoading ? (
+                      <span className="flex items-center gap-2"><svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>Creating Account...</span>
+                    ) : (
+                      <><span>Register Account</span><ArrowRight size={16} /></>
+                    )}
                   </button>
                 </form>
 

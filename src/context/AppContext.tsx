@@ -67,6 +67,9 @@ export interface User {
   doctorId?: string;  // Links to Doctor if role is doctor
 }
 
+// Backend API base URL – change this if your backend runs on a different port
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
+
 interface AppContextType {
   user: User | null;
   theme: "light" | "dark";
@@ -74,9 +77,9 @@ interface AppContextType {
   doctors: Doctor[];
   appointments: Appointment[];
   sharedPermissions: { [patientId: string]: string[] }; // patientId -> array of doctorIds
-  login: (email: string, role: "patient" | "doctor") => boolean;
+  login: (email: string, password: string, role: "patient" | "doctor") => Promise<{ success: boolean; error?: string }>;
   logout: () => void;
-  signUp: (name: string, email: string, role: "patient" | "doctor", extraInfo?: any) => void;
+  signUp: (name: string, email: string, password: string, role: "patient" | "doctor", extraInfo?: any) => Promise<{ success: boolean; error?: string }>;
   toggleTheme: () => void;
   addConsultationNote: (patientId: string, doctorId: string, event: Omit<TimelineEvent, "id">) => void;
   uploadPatientReport: (patientId: string, report: Omit<MedicalReport, "id" | "date">) => void;
@@ -279,61 +282,140 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   }, [theme]);
 
-  // Auth Operations
-  const login = (email: string, role: "patient" | "doctor"): boolean => {
-    if (role === "patient") {
-      const match = patients.find(p => p.email.toLowerCase() === email.toLowerCase());
-      if (match) {
-        setUser({ id: match.id, name: match.name, email: match.email, role: "patient", patientId: match.id });
-        return true;
+  // Auth Operations — wired to real backend API
+  const login = async (
+    email: string,
+    password: string,
+    role: "patient" | "doctor"
+  ): Promise<{ success: boolean; error?: string }> => {
+    try {
+      const res = await fetch(`${API_URL}/api/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password })
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        return { success: false, error: data.message || "Login failed" };
       }
-    } else {
-      const match = doctors.find(d => d.email.toLowerCase() === email.toLowerCase());
-      if (match) {
-        setUser({ id: match.id, name: match.name, email: match.email, role: "doctor", doctorId: match.id });
-        return true;
+
+      // Store JWT token
+      localStorage.setItem("medilynk_token", data.token);
+
+      // Build local user object — use mock portal record if one matches email, else create from API response
+      const dbRole = (data.user?.role?.toLowerCase() || role) as "patient" | "doctor";
+      const displayRole = dbRole === "patient" ? "patient" : "doctor";
+
+      if (displayRole === "patient") {
+        const match = patients.find(p => p.email.toLowerCase() === email.toLowerCase());
+        if (match) {
+          setUser({ id: match.id, name: match.name, email: match.email, role: "patient", patientId: match.id });
+        } else {
+          const newId = data.user?.id ? `PT-${data.user.id}` : `PT-${Math.floor(1000 + Math.random() * 9000)}`;
+          const newPatient: PatientRecord = {
+            id: newId,
+            name: data.user?.name || email.split("@")[0],
+            email,
+            phone: "+1 (555) 000-0000",
+            age: 30,
+            gender: "Other",
+            bloodGroup: "O-Positive",
+            allergies: [],
+            chronicDiseases: [],
+            surgeries: [],
+            vaccinations: [],
+            currentMedications: [],
+            medicalHistory: `Account created and linked on ${new Date().toLocaleDateString()}.`,
+            timeline: []
+          };
+          setPatients(prev => [...prev, newPatient]);
+          setUser({ id: newId, name: newPatient.name, email, role: "patient", patientId: newId });
+        }
+      } else {
+        const match = doctors.find(d => d.email.toLowerCase() === email.toLowerCase());
+        if (match) {
+          setUser({ id: match.id, name: match.name, email: match.email, role: "doctor", doctorId: match.id });
+        } else {
+          const newId = data.user?.id ? `DOC-${data.user.id}` : `DOC-${Math.floor(100 + Math.random() * 900)}`;
+          setUser({ id: newId, name: data.user?.name || email.split("@")[0], email, role: "doctor", doctorId: newId });
+        }
       }
+
+      return { success: true };
+    } catch (err) {
+      console.error("Login error:", err);
+      return { success: false, error: "Cannot connect to server. Is the backend running on port 5000?" };
     }
-    return false;
   };
 
   const logout = () => {
     setUser(null);
+    localStorage.removeItem("medilynk_token");
   };
 
-  const signUp = (name: string, email: string, role: "patient" | "doctor", extraInfo?: any) => {
-    if (role === "patient") {
-      const newId = `PT-${Math.floor(1000 + Math.random() * 9000)}`;
-      const newPatient: PatientRecord = {
-        id: newId,
-        name,
-        email,
-        phone: extraInfo?.phone || "+1 (555) 000-0000",
-        age: Number(extraInfo?.age) || 30,
-        gender: extraInfo?.gender || "Other",
-        bloodGroup: extraInfo?.bloodGroup || "O-Positive",
-        allergies: extraInfo?.allergies ? extraInfo.allergies.split(",").map((s: string) => s.trim()) : [],
-        chronicDiseases: extraInfo?.chronicDiseases ? extraInfo.chronicDiseases.split(",").map((s: string) => s.trim()) : [],
-        surgeries: [],
-        vaccinations: [],
-        currentMedications: [],
-        medicalHistory: `New patient account created on ${new Date().toLocaleDateString()}.`,
-        timeline: []
-      };
-      setPatients(prev => [...prev, newPatient]);
-      setUser({ id: newId, name, email, role: "patient", patientId: newId });
-    } else {
-      const newId = `DOC-${Math.floor(100 + Math.random() * 900)}`;
-      const newDoc: Doctor = {
-        id: newId,
-        name: `Dr. ${name}`,
-        specialty: extraInfo?.specialty || "General Medicine",
-        email,
-        phone: extraInfo?.phone || "+1 (555) 000-0000"
-      };
-      // For doctors, they are added to the list
-      doctors.push(newDoc); // mutate static list (simulated)
-      setUser({ id: newId, name: `Dr. ${name}`, email, role: "doctor", doctorId: newId });
+  const signUp = async (
+    name: string,
+    email: string,
+    password: string,
+    role: "patient" | "doctor",
+    extraInfo?: any
+  ): Promise<{ success: boolean; error?: string }> => {
+    try {
+      const res = await fetch(`${API_URL}/api/auth/register`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: role === "doctor" ? `Dr. ${name}` : name,
+          email,
+          password,
+          role: role.toUpperCase() // backend stores PATIENT / DOCTOR
+        })
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        return { success: false, error: data.message || "Registration failed" };
+      }
+
+      // After successful registration, also create a local portal record for the demo views
+      if (role === "patient") {
+        const newId = data.user?.id ? `PT-${data.user.id}` : `PT-${Math.floor(1000 + Math.random() * 9000)}`;
+        const newPatient: PatientRecord = {
+          id: newId,
+          name,
+          email,
+          phone: extraInfo?.phone || "+1 (555) 000-0000",
+          age: Number(extraInfo?.age) || 30,
+          gender: extraInfo?.gender || "Other",
+          bloodGroup: extraInfo?.bloodGroup || "O-Positive",
+          allergies: [],
+          chronicDiseases: [],
+          surgeries: [],
+          vaccinations: [],
+          currentMedications: [],
+          medicalHistory: `New patient account created on ${new Date().toLocaleDateString()}.`,
+          timeline: []
+        };
+        setPatients(prev => [...prev, newPatient]);
+        setUser({ id: newId, name, email, role: "patient", patientId: newId });
+      } else {
+        const newId = data.user?.id ? `DOC-${data.user.id}` : `DOC-${Math.floor(100 + Math.random() * 900)}`;
+        const newDoc: Doctor = {
+          id: newId,
+          name: `Dr. ${name}`,
+          specialty: extraInfo?.specialty || "General Medicine",
+          email,
+          phone: extraInfo?.phone || "+1 (555) 000-0000"
+        };
+        doctors.push(newDoc);
+        setUser({ id: newId, name: `Dr. ${name}`, email, role: "doctor", doctorId: newId });
+      }
+
+      return { success: true };
+    } catch (err) {
+      console.error("Sign up error:", err);
+      return { success: false, error: "Cannot connect to server. Is the backend running on port 5000?" };
     }
   };
 
